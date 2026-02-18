@@ -1,95 +1,115 @@
 const express = require('express');
-const app = express();
+const mongoose = require('mongoose');
+require('dotenv').config();
 
-// Use environment port if available (for production)
+const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// Sample in-memory data
-let users = [
-    { id: 1, name: 'John Doe', email: 'john@example.com' },
-    { id: 2, name: 'Jane Doe', email: 'jane@example.com' }
-];
+// Blog Schema & Model
+const blogSchema = new mongoose.Schema({
+    title: { type: String, required: true },
+    content: { type: String, required: true },
+    author: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now }
+});
+
+const Blog = mongoose.model('Blog', blogSchema);
+
+// --- Routes ---
 
 // Home route
 app.get('/', (req, res) => {
-    res.json({ message: 'USER HOME PAGE' });
+    res.json({ message: 'BLOG API HOME PAGE' });
 });
 
-// Get all users
-app.get('/users', (req, res) => {
-    res.json(users);
-});
-
-// Get single user by ID
-app.get('/users/:id', (req, res) => {
-    const id = parseInt(req.params.id);
-    const user = users.find(u => u.id === id);
-
-    if (!user) {
-        return res.status(404).json({ message: 'User not found' });
+// CREATE - Post a new blog
+app.post('/blogs', async (req, res) => {
+    try {
+        const { title, content, author } = req.body;
+        if (!title || !content || !author) {
+            return res.status(400).json({ message: 'Title, content, and author are required' });
+        }
+        const newBlog = new Blog({ title, content, author });
+        const savedBlog = await newBlog.save();
+        res.status(201).json(savedBlog);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
     }
-
-    res.json(user);
 });
 
-// Create new user
-app.post('/users', (req, res) => {
-    const { name, email } = req.body;
-
-    if (!name || !email) {
-        return res.status(400).json({ message: 'Name and email are required' });
+// READ - Get all blogs
+app.get('/blogs', async (req, res) => {
+    try {
+        const blogs = await Blog.find().sort({ createdAt: -1 });
+        res.json(blogs);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
     }
-
-    const newUser = {
-        id: users.length > 0 ? users[users.length - 1].id + 1 : 1,
-        name,
-        email
-    };
-
-    users.push(newUser);
-    res.status(201).json(newUser);
 });
 
-// Update user
-app.put('/users/:id', (req, res) => {
-    const id = parseInt(req.params.id);
-    const { name, email } = req.body;
-
-    const userIndex = users.findIndex(u => u.id === id);
-
-    if (userIndex === -1) {
-        return res.status(404).json({ message: 'User not found' });
+// READ - Get single blog by ID
+app.get('/blogs/:id', async (req, res) => {
+    try {
+        const blog = await Blog.findById(req.params.id);
+        if (!blog) {
+            return res.status(404).json({ message: 'Blog not found' });
+        }
+        res.json(blog);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
     }
+});
 
-    if (!name || !email) {
-        return res.status(400).json({ message: 'Name and email are required' });
+// UPDATE - Update a blog
+app.put('/blogs/:id', async (req, res) => {
+    try {
+        const { title, content, author } = req.body;
+        const updatedBlog = await Blog.findByIdAndUpdate(
+            req.params.id,
+            { title, content, author },
+            { new: true, runValidators: true }
+        );
+        if (!updatedBlog) {
+            return res.status(404).json({ message: 'Blog not found' });
+        }
+        res.json(updatedBlog);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
     }
-
-    users[userIndex] = {
-        ...users[userIndex],
-        name,
-        email
-    };
-
-    res.json(users[userIndex]);
 });
 
-// Delete user
-app.delete('/users/:id', (req, res) => {
-    const id = parseInt(req.params.id);
-    const userIndex = users.findIndex(u => u.id === id);
-
-    if (userIndex === -1) {
-        return res.status(404).json({ message: 'User not found' });
+// DELETE - Remove a blog
+app.delete('/blogs/:id', async (req, res) => {
+    try {
+        const deletedBlog = await Blog.findByIdAndDelete(req.params.id);
+        if (!deletedBlog) {
+            return res.status(404).json({ message: 'Blog not found' });
+        }
+        res.status(200).json({ message: 'Blog deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
     }
-
-    users.splice(userIndex, 1);
-    res.status(204).send();
 });
 
-// Start server (IMPORTANT for EC2)
-app.listen(port, '0.0.0.0', () => {
-    console.log(`🚀 Server running on port ${port}`);
-});
+// --- MongoDB Connection & Server Start ---
+const startServer = async () => {
+    try {
+        console.log('⏳ Connecting to MongoDB...');
+        await mongoose.connect(process.env.MONGODB_URI, {
+            serverSelectionTimeoutMS: 5000,
+        });
+        console.log('✅ Connected to MongoDB');
+
+        app.listen(port, () => {
+            console.log(`🚀 Server running on port ${port}`);
+        });
+    } catch (err) {
+        console.error('❌ MongoDB connection error:', err.message);
+        console.error('👉 Please make sure your IP is whitelisted in MongoDB Atlas.');
+        process.exit(1);
+    }
+};
+
+startServer();
